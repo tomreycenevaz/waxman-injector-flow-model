@@ -1,0 +1,121 @@
+# Waxman Injector Flow Model
+
+A Python implementation of four classical mass-flow models for injectors running self-pressurising propellants: **SPI**, **HEM**, **Burnell**, and **Dyer**. The models are validated against cold-flow CO₂ data and then applied to saturated and supercharged nitrous oxide (N₂O), the oxidiser used in most hybrid rocket motors.
+
+## Background
+
+Propellants like N₂O and CO₂ are stored as saturated liquids at room temperature, so they begin to boil (flash) as their pressure drops through the injector orifice. Predicting mass flow rate under those conditions is harder than for a normal liquid, and the four models here take different positions on how much flashing happens inside the orifice:
+
+| Model | Assumption |
+|---|---|
+| **SPI** (Single-Phase Incompressible) | Fluid stays liquid the whole way through. Upper bound. |
+| **HEM** (Homogeneous Equilibrium) | Fluid flashes instantly and stays in thermodynamic equilibrium. Flow chokes. |
+| **Burnell** | Fluid stays liquid inside the orifice and flashes only at the exit, with an empirical correction. |
+| **Dyer** | Weighted blend of SPI and HEM, controlled by a non-equilibrium parameter *k* that depends on supercharge. |
+
+## Source and acknowledgement
+
+The physical models, equations, validation methodology, and experimental data all come from:
+
+> Waxman, B.S. (2014). *An Investigation of Injectors for Use with High Vapor Pressure Propellants with Applications to Hybrid Rockets.* PhD Dissertation, Stanford University.
+
+The models themselves predate Waxman (Burnell 1947, the HEM literature, Dyer et al. 2007), but his Chapter 2 presents all four with consistent notation and his Chapter 3 provides the cold-flow data used for validation. This repository is a Python re-implementation of that analytical work.
+
+| This project | Waxman source |
+|---|---|
+| SPI model (`models/spi.py`) | Eq. 2.17, Section 2.2.1 |
+| HEM model (`models/hem.py`) | Section 2.2.1.1.1 |
+| Burnell model (`models/burnell.py`) | Section 2.2.2.1.1, Eq. 2.52 |
+| Dyer model and *k* (`models/dyer.py`) | Section 2.2.2.2.1, Eq. 2.57 |
+| Cavitation number, supercharge pressure | Section 2.2.1, Eqs. 2.20–2.21 |
+| `main.py` Figures 1–2 | Reproduce Waxman Figs. 2.2, 2.3 |
+| `main.py` Figure 3 | Reproduces Waxman Fig. 2.20 |
+| Validation injector geometries (Cd, D, L/D) | Table 3.1, Fig. 3.21 |
+| Validation data (CO₂ cold flow) | Figs. 3.17, 3.21, 3.22 |
+
+**Additions beyond the dissertation:**
+
+- The Python package structure, the `Injector` class, and the split into `models/` submodules.
+- **Supercharge sweep** (`main.py` Figures 5–6). Waxman fixes supercharge and varies temperature; here temperature is fixed at 0 °C and supercharge is swept across {0, 50, 100, 200, 400} psia. This shows directly how the Dyer prediction migrates from the HEM bound toward the SPI bound, and how *k* evolves along the way.
+- **Unified RMS comparison** (`validation.py` Figure 5). Waxman presents validation per injector; this adds a single bar chart comparing all three two-phase models across all four geometries.
+
+## Installation
+
+Requires Python 3.10+.
+
+```bash
+git clone https://github.com/<tomreycenevaz>/waxman-injector-flow-model.git
+cd waxman-injector-flow-model
+pip install -r requirements.txt
+```
+
+Fluid properties come from [CoolProp](http://www.coolprop.org/), the open-source counterpart to the NIST REFPROP library Waxman used.
+
+## Usage
+
+The two scripts are independent entry points:
+
+```bash
+python main.py         # N₂O saturated and supercharged sweeps (Figures 1–6)
+python validation.py   # CO₂ cold-flow validation, 4 injectors (Figures 1–5, ~5 min)
+```
+
+## Project structure
+
+```
+waxman-injector-flow-model/
+├── main.py            # N₂O saturated/supercharged sweeps
+├── validation.py      # CO₂ cold-flow validation and RMS summary
+├── fluids.py          # CoolProp wrappers and unit conversions
+├── injector.py        # Injector geometry class
+├── requirements.txt
+└── models/
+    ├── spi.py         # Single-Phase Incompressible
+    ├── hem.py         # Homogeneous Equilibrium Model
+    ├── burnell.py     # Burnell frozen flow with empirical correction
+    └── dyer.py        # Dyer non-equilibrium blend
+```
+
+## Results
+
+Validation against Waxman's CO₂ cold-flow data (T = 20 °C), RMS error in g/s:
+
+| Injector | HEM | Dyer | Burnell | Best |
+|---|---:|---:|---:|---|
+| 2 — Square edge, L/D = 12.3 | **5.8** | 22.2 | 27.9 | HEM |
+| 3 — Rounded, L/D = 12.3 | **4.8** | 28.0 | 33.0 | HEM |
+| 4 — Chamfered, L/D = 12.3 | **11.1** | 18.8 | 38.3 | HEM |
+| 6 — Square edge, L/D = 2.1 | 19.5 | **14.6** | 43.7 | Dyer |
+
+**Geometry, not just physics, determines which model fits.** HEM performs best for the long orifices (L/D = 12.3), where the fluid has enough residence time to approach equilibrium. Dyer performs best for the short orifice (L/D = 2.1), where flashing is incomplete and non-equilibrium effects matter. Burnell underperforms across this dataset.
+
+The N₂O supercharge sweep confirms that Dyer's *k* parameter behaves as intended: *k* = 0 for saturated upstream conditions (Dyer = HEM), rising toward *k* = 1 as supercharge grows (Dyer → SPI).
+
+All generated plots are in [`figures/`](figures/) and shown with descriptions in [RESULTS.md](RESULTS.md).
+
+### Data caveats
+
+- **Digitised data.** The experimental points were read by eye from Waxman's Figs. 3.17 and 3.22, since the raw measurements aren't available. Expect roughly ±2–5 g/s reading error per point. A difference like 5.8 vs 4.8 g/s is not meaningful; 5.8 vs 19.5 is.
+- **Injector 6 Cd.** The single-phase plateau for Injector 6 in Fig. 3.21 was not legible, so Cd = 0.65 was chosen by analogy to Injector 2 (same inlet shape and diameter). A different value would shift all three curves and could reshuffle the exact RMS numbers, though the qualitative result (Dyer beats HEM at short L/D) holds.
+
+## Limitations
+
+All four models are **steady-state**: each call evaluates a single operating point as if the flow had been running at those conditions indefinitely. The sweeps are sequences of independent snapshots, not time evolutions. Out of scope:
+
+- Tank blowdown (falling P₁ and T₁ from auto-refrigeration) — this requires a separate tank model wrapped around the injector model
+- Start-up transients, valve dynamics, water hammer
+- Combustion-chamber feedback (chugging, two-phase oscillation)
+- Spatial resolution inside the orifice (velocity profiles, separation, cavitation geometry)
+
+Within those limits, agreement with experiment is roughly 5–20 g/s for the appropriate model choice.
+
+## References
+
+- Waxman, B.S. (2014). *An Investigation of Injectors for Use with High Vapor Pressure Propellants with Applications to Hybrid Rockets.* PhD Dissertation, Stanford University.
+- Burnell, J.G. (1947). Flow of boiling water through nozzles, orifices, and pipes. *Engineering*, 164, 572.
+- Dyer, J., Doran, E., Dunn, Z., Lohner, K., Zilliac, G., Cantwell, B. (2007). Modeling feed system flow physics for self-pressurizing propellants. AIAA 2007-5702.
+- Bell, I.H., Wronski, J., Quoilin, S., Lemort, V. (2014). Pure and pseudo-pure fluid thermophysical property evaluation and the open-source thermophysical property library CoolProp. *Industrial & Engineering Chemistry Research*, 53(6), 2498–2508.
+
+## Development notes
+
+This was my first Python project, written to learn the language through a real fluid-mechanics application. AI assistance was used for this readme, syntax, commenting, code structure, and debugging; the model implementations, validation approach, and interpretation of results are my own.
